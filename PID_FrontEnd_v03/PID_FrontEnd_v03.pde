@@ -14,10 +14,13 @@
  * http://www.sojamo.de/libraries/controlP5/
  * 
  ********************************************************/
-
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
 import processing.serial.*;
 import controlP5.*;
+import java.io.*;
+import java.time.Instant;
 
 /***********************************************
  * User spcification section
@@ -30,8 +33,7 @@ float InScaleMax = 1024;    // and Max for both
 float OutScaleMin = 0;      // the top and 
 float OutScaleMax = 255;    // bottom trends
 
-
-int windowSpan = 300000;    // number of mS into the past you want to display
+int windowSpan = 20000;    // number of mS into the past you want to display
 int refreshRate = 100;      // how often you want the graph to be reDrawn;
 
 //float displayFactor = 1; //display Time as Milliseconds
@@ -40,6 +42,11 @@ float displayFactor = 60000; //display Time as Minutes
 
 String outputFileName = ""; // if you'd like to output data to 
 // a file, specify the path here
+
+boolean set = false;
+boolean movGrid = false;
+float quadro;
+
 
 /***********************************************
  * end user spec
@@ -57,7 +64,7 @@ float inputHeight = (windowHeight-70)*2/3;
 float outputTop = inputHeight+50;
 float outputHeight = (windowHeight-70)*1/3;
 
-float ioLeft = 150, ioWidth = windowWidth-ioLeft-50;
+float ioLeft = 180, ioWidth = windowWidth-ioLeft-50;
 float ioRight = ioLeft+ioWidth;
 float pointWidth= (ioWidth)/float(arrayLength-1);
 
@@ -74,21 +81,34 @@ Serial myPort;
 
 ControlP5 controlP5;
 controlP5.Button AMButton, DRButton; 
-controlP5.Slider Zoom, SliderKP, SliderKI, SliderKD; /**New Buttons*/
+controlP5.Slider Zoom, SliderKP, SliderKI, SliderKD, Speed; /**New Buttons*/
 controlP5.Textlabel AMLabel, AMCurrent, InLabel, 
-OutLabel, SPLabel, PLabel, ZoomIn, ZoomLabel, 
+OutLabel, SPLabel, PLabel, 
+ZoomIn, ZoomOut,
+SpeedIn, SpeedOut,
 ILabel, DLabel,DRLabel, DRCurrent;
 controlP5.Textfield SPField, InField, OutField, 
 PField, IField, DField;
 controlP5.Knob KnobSetPoint;
+controlP5.Toggle PausePlay;
+ControlFont font;
+
 
 PrintWriter output;
 PFont AxisFont, TitleFont, p; 
 
 void setup() //<>//
 {
- //<>//
-  //controlP5.setColorActive(0xffff0000);
+ 
+  controlP5 = new ControlP5(this);
+  
+  p = createFont("Calibri",10);  //<>//
+  font = new ControlFont(p);
+  
+  controlP5.setColorForeground(0xffaa0000);
+  controlP5.setColorBackground(0xff660000);
+  controlP5.setFont(font);
+  controlP5.setColorActive(0xffff0000);
   
   frameRate(30);
   //size(windowWidth , windowHeight);
@@ -97,37 +117,41 @@ void setup() //<>//
   println(Serial.list());                                           // * Initialize Serial
   myPort = new Serial(this, Serial.list()[0], 9600);                //   Communication with
   myPort.bufferUntil(10);                                           //   the Arduino
-
-  controlP5 = new ControlP5(this);                                  // * Initialize the various
+                                    // * Initialize the various
   //SPField= controlP5.addTextfield("Setpoint",10,100,60,20);
-  KnobSetPoint = controlP5.addKnob("Setpoint",0,1000,400,20,80,50);                                                              //   Buttons, Labels, and
-  InField = controlP5.addTextfield("Input",10,150,60,20);           //   Text Fields we'll be
-  OutField = controlP5.addTextfield("Output",10,200,60,20);         //   using
+  KnobSetPoint = controlP5.addKnob("Setpoint").setRange(0,1000).setValue(400).setPosition(50,100).setRadius(35).setDragDirection(Knob.HORIZONTAL);                                                              //   Buttons, Labels, and
+  InField = controlP5.addTextfield("Input",-90,150,60,20);           //   Text Fields we'll be
+  OutField = controlP5.addTextfield("Output",-90,200,60,20);         //   using
 
-  SliderKP = controlP5.addSlider("Kp (Proportional)",0,20,2,275,60,20);          
-  SliderKI = controlP5.addSlider("Ki (Integral)",0,20,4,325,60,20);          
-  SliderKD = controlP5.addSlider("Kd (Derivative)",0,20,0,375,60,20);
+  SliderKP = controlP5.addSlider("Kp (Proportional)",0,15,10,200,60,20);          
+  SliderKI = controlP5.addSlider("Ki (Integral)",0,15,10,250,60,20);          
+  SliderKD = controlP5.addSlider("Kd (Derivative)",0,15,10,300,60,20);
   
   //PField = controlP5.addTextfield("Kp (Proportional)",10,275,60,20);          //
   //IField = controlP5.addTextfield("Ki (Integral)",10,325,60,20);          //
   //DField = controlP5.addTextfield("Kd (Derivative)",10,375,60,20);          //
 //AMButton = controlP5.addButton("Toggle_AM",0.0,10,50,60,20);      //
-  AMLabel = controlP5.addTextlabel("AM","Manual Settings",12,70);            //
+  AMLabel = controlP5.addTextlabel("AM","Manual Settings for PID",12,20);            //
   //AMCurrent = controlP5.addTextlabel("AMCurrent","Manual",80,65);   //
-  controlP5.addButton("Send_To_Arduino",0.0,10,475,120,20);         //
-  SPLabel=controlP5.addTextlabel("SP","3",80,103);                  //
-  InLabel=controlP5.addTextlabel("In","1",80,153);                  //
-  OutLabel=controlP5.addTextlabel("Out","2",80,203);                //
-  PLabel=controlP5.addTextlabel("","4",80,278);                    //
-  ILabel=controlP5.addTextlabel("","5",80,328);                    //
-  DLabel=controlP5.addTextlabel("","6",80,378);                    //
+  controlP5.addButton("Send_To_Arduino",0.0,10,500,120,20);         //
+  SPLabel=controlP5.addTextlabel("SP","3",120,130);                  //
+  InLabel=controlP5.addTextlabel("In","1",-80,153);                  //
+  OutLabel=controlP5.addTextlabel("Out","2",-80,203);                //
+  PLabel=controlP5.addTextlabel("","4",-100,278);                    //
+  ILabel=controlP5.addTextlabel("","5",-100,328);                    //
+  DLabel=controlP5.addTextlabel("","6",-100,378);                    //
   //DRButton = controlP5.addButton("Toggle_DR",0.0,10,425,60,20);      //
-  DRLabel = controlP5.addTextlabel("DR","Direct",12,447);            //
+  DRLabel = controlP5.addTextlabel("DR","",12,447);            //
   //DRCurrent = controlP5.addTextlabel("DRCurrent","Direct",80,440);   //
-  ZoomIn = controlP5.addTextlabel("ZoomIn","-",10,50);
-  ZoomLabel = controlP5.addTextlabel("ZoomLabel","Zoom",50,35);
-  Zoom = controlP5.addSlider("+",0,100,50,20,50,100,10);
-
+  ZoomIn = controlP5.addTextlabel("ZoomIn","-",10,48);
+  ZoomOut = controlP5.addTextlabel("ZoomOut","+",100,48);
+  Zoom = controlP5.addSlider("Zoom",0,100,50,10,60,100,10);
+  
+  SpeedIn = controlP5.addTextlabel("SpeedIn","-",100,400);
+  SpeedOut = controlP5.addTextlabel("SpeedOut","+",10,400);
+  Speed = controlP5.addSlider("Speed",10,100,50,10,415,100,10);
+  PausePlay = controlP5.addToggle("Pause_Play",false,10,350,20,20);
+  
 
   AxisFont = loadFont("axis.vlw");
   TitleFont = loadFont("Titles.vlw");
@@ -138,9 +162,11 @@ void setup() //<>//
 
 void draw()
 {
-  background(200);
-  drawGraph();
-  drawButtonArea();
+  if(!set){
+    background(200);
+    drawGraph();
+    drawButtonArea();
+  }
 }
 
 void drawGraph()
@@ -354,7 +380,54 @@ void drawButtonArea()
 {
   stroke(0);
   fill(100);
-  rect(0, 0, ioLeft, windowHeight);
+  rect(0, 0, ioLeft, 800);
+}
+
+void Pause_Play(){
+  
+  if(!set){
+     set = true;
+  } else {
+     set = false;
+  }
+          
+}
+
+void Speed(){
+  windowSpan = ((((int)Speed.getValuePosition())*1000));
+  quadro = (windowSpan*1000)/20000;
+  
+  if(quadro <300){
+     movGrid = false;
+  }else{
+    movGrid = true;
+  }
+  
+  if(quadro <100){
+    refreshRate = 50;
+  }
+
+  arrayLength = windowSpan / refreshRate+1;
+  InputData = new int[arrayLength];     //we might not need them this big, but
+  inputHeight = (windowHeight-70)*2/3;
+  outputTop = inputHeight+50;
+  outputHeight = (windowHeight-70)*1/3;
+  ioLeft = 150;
+  ioWidth = windowWidth-ioLeft-50;
+  ioRight = ioLeft+ioWidth;
+  nPoints = 0;
+  pointWidth= (ioWidth+100)/float(arrayLength-1);
+
+}
+
+void setMovGrid(){
+  
+  if(!movGrid){
+    movGrid=true;
+  } else {
+    movGrid=false;
+  }
+
 }
 
 //void Toggle_AM() {
@@ -390,7 +463,7 @@ void drawButtonArea()
 // - send those bytes to the arduino
 void Send_To_Arduino()
 {
-  float[] toSend = new float[6];
+  float[] toSend = new float[7];
 
   toSend[0] = float(KnobSetPoint.getValue()+"");
   toSend[1] = float(InField.getText());
@@ -398,6 +471,7 @@ void Send_To_Arduino()
   toSend[3] = float(SliderKP.getValue()+"");
   toSend[4] = float(SliderKI.getValue()+"");
   toSend[5] = float(SliderKD.getValue()+"");
+  toSend[6] = float(PausePlay.getValue()+"");//Ignora  
   Byte a = (AMLabel.getValueLabel().getText()=="Manual")?(byte)0:(byte)1;
   Byte d = (DRLabel.getValueLabel().getText()=="Direct")?(byte)0:(byte)1;
   myPort.write(a);

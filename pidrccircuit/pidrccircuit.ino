@@ -15,6 +15,7 @@ double  voltageInput;
 double KP, KI, KD;
 int inputPin = 0; //A0 for sensor pin (pv sensor)
 int outputPin = 3; //D3~ for pwm control signal
+int pausePlay = 0;
 // int setpointPin = 1; // for analogic set point A1 (potentiometer)
 
 
